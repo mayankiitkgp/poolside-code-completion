@@ -15,34 +15,35 @@
 **Target benchmark:** Match GPT-4's 67% on HumanEval using Qwen 2.5 Coder (32B) + retrieved context, at 10x lower cost.
 
 ---
-
 ## Architecture
 
-flowchart TD
-A[Python Codebase
-FastAPI ~50K LoC] -->|AST Parse| B[Function Chunks
-+ docstrings + signatures]
-B -->|Embed via OpenAI API| C[pgvector Database
-1536D vectors]
-D[User Query
-Partial Code Snippet] -->|Extract tokens| E[Hybrid Retrieval]
-C --> E
-E -->|1. BM25 keyword scoring| F[Top-20 Candidates]
-F -->|2. Cosine similarity rerank| G[Top-5 Context Functions]
-G -->|Inject into prompt| H[Qwen 2.5 Coder 32B
-via Groq API]
-H --> I[Completion + Citations]
+**System Pipeline:**
 
-style A fill:#e1f5fe
-style C fill:#fff3e0
-style H fill:#f3e5f5
-style I fill:#e8f5e9
+1. **Index Phase:** 
+   - Parse Python codebase using `ast` module (extract functions, classes, docstrings)
+   - Generate embeddings with `text-embedding-3-small` (1536D vectors, $0.02/1M tokens)
+   - Store in PostgreSQL + pgvector extension (HNSW index for fast ANN search)
+
+2. **Retrieval Phase:**
+   - User provides partial code snippet
+   - BM25 scores top-20 candidates (keyword precision for exact API matches)
+   - Cosine similarity reranks top-20 → select top-5 (semantic relevance)
+
+3. **Completion Phase:**
+   - Inject top-5 context into LLM prompt template
+   - Qwen 2.5 Coder 32B generates completion via Groq API (400 tok/sec inference)
+   - Return code + citations (which functions influenced output)
+
+**Data Flow:**
+
+Codebase → AST Parse → Embed → pgvector → [Query] → BM25 → Cosine → Top-5 → Qwen → Completion
 
 
-**Pipeline:**
-1. **Index:** AST-parse codebase → embed functions with `text-embedding-3-small` (1536D) → store in pgvector
-2. **Retrieve:** Hybrid search (BM25 keyword + cosine semantic) → top-5 context
-3. **Complete:** Inject context into Qwen 2.5 Coder prompt → generate completion + citations
+**Tech Highlights:**
+- Hybrid search beats pure vector (handles both "find sort function" and "find data transformation logic")
+- Groq LPU inference: 8x faster than GPU at lower cost ($0.27/1M vs AWS g5 at $1.50/hr)
+- Function-level chunking preserves context better than line-based or file-based splits
+
 
 ---
 
